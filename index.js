@@ -11,7 +11,7 @@ const app = express()
 // Function to get meeting information
 function getMeetingInfo(accessToken, callback) {
     // Set the API endpoint URL
-    const apiUrl = 'https://api.zoom.us/v2/users/me/meetings/participants'
+    const apiUrl = 'https://api.zoom.us/v2/users/miimug528@gmail.com'
 
     // Set the request headers
     const headers = {
