@@ -11,7 +11,7 @@ const app = express()
 // Function to get meeting information
 function getMeetingInfo(accessToken, callback) {
     // Set the API endpoint URL
-    const apiUrl = 'https://api.zoom.us/v2/users/miimug528@gmail.com'
+    const apiUrl = 'https://api.zoom.us/v2/past_meetings/83313322898/participants'
 
     // Set the request headers
     const headers = {
@@ -193,4 +193,4 @@ app.get('/', (req, res) => {
     res.redirect('https://zoom.us/oauth/authorize?response_type=code&client_id=' + process.env.clientID + '&redirect_uri=' + process.env.redirectURL)
 })
 
-app.listen(33333, () => console.log(`Zoom Hello World app listening at PORT: 33333`))
+app.listen(33333, () => console.log("http://localhost:33333"))
