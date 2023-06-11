@@ -10,25 +10,70 @@ const app = express()
 
 // Function to get meeting information
 function getMeetingInfo(accessToken, callback) {
-    // Set the API endpoint URL
-    const apiUrl = 'https://api.zoom.us/v2/past_meetings/83313322898/participants'
+  // Set the API endpoint URL
+  const apiUrl = 'https://api.zoom.us/v2/past_meetings/83313322898/participants'
 
-    // Set the request headers
-    const headers = {
-        'Authorization': 'Bearer ' + accessToken
-    }
+  // Set the request headers
+  const headers = {
+      'Authorization': 'Bearer ' + accessToken
+  }
 
-    // Send GET request to the API endpoint
-    request.get({ url: apiUrl, headers: headers }, (error, response, body) => {
-        if (error) {
-            console.log('API Response Error: ', error)
-            callback(error, null)
-        } else {
-            body = JSON.parse(body)
-            callback(null, body)
-        }
-    })
+  // Send GET request to the API endpoint
+  request.get({ url: apiUrl, headers: headers }, (error, response, body) => {
+      if (error) {
+          console.log('API Response Error: ', error)
+          callback(error, null)
+      } else {
+          body = JSON.parse(body)
+
+          // Create a map to hold the count of participants for each minute
+          let participationMap = new Map()
+
+          // Iterate over the participants
+          for(let participant of body.participants) {
+              // Parse join and leave times
+              let joinTime = new Date(participant.join_time)
+              let leaveTime = new Date(participant.leave_time)
+
+              // Round down join time to the nearest minute
+              joinTime.setSeconds(0)
+              joinTime.setMilliseconds(0)
+
+              // Round up leave time to the nearest minute
+              leaveTime.setSeconds(0)
+              leaveTime.setMilliseconds(0)
+              leaveTime.setMinutes(leaveTime.getMinutes() + 1)
+
+              // Calculate the number of minutes the participant was present
+              let durationMinutes = Math.round((leaveTime - joinTime) / 60000)
+
+              // Increment the count for each minute the participant was present
+              for(let i = 0; i < durationMinutes; i++) {
+                  let minute = new Date(joinTime.getTime() + i*60000).toISOString()
+
+                  if(participationMap.has(minute)) {
+                      participationMap.set(minute, participationMap.get(minute) + 1)
+                  } else {
+                      participationMap.set(minute, 1)
+                  }
+              }
+          }
+
+          // Convert the map to a sorted array of [minute, count] pairs
+          let participationArray = Array.from(participationMap)
+          participationArray.sort((a, b) => a[0].localeCompare(b[0]))
+
+          // Output the participant count for each minute
+          console.log('Participant count by minute:')
+          for(let [minute, count] of participationArray) {
+              console.log(minute, count)
+          }
+
+          callback(null, body)
+      }
+  })
 }
+
 
 app.get('/', (req, res) => {
 
