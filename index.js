@@ -1,12 +1,53 @@
 // Bring in environment secrets through dotenv
-require('dotenv/config')
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Use the request module to make HTTP requests from Node
-const request = require('request')
+import request from 'request';
 
 // Run the express app
-const express = require('express')
+import express from 'express';
+import { google } from 'googleapis';
+
+
+// Google SheetsのAPIをセットアップする
+async function updateSpreadsheet(participationMap) {
+  const auth = new google.auth.GoogleAuth({
+    keyFile: 'countyoutubeaudience-e290fee05aa5.json',
+    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+  });
+  const client = await auth.getClient();
+  const googleSheets = google.sheets({ version: 'v4', auth: client });
+
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+
+  let participationArray = Array.from(participationMap);
+
+
+  // スプレッドシートに記入するデータを準備する
+  let values = [];
+  for (let [minute, count] of participationArray) {
+    values.push([minute, count]);
+  }
+
+  // スプレッドシートにデータを書き込む
+  const write = await googleSheets.spreadsheets.values.update({
+    auth,
+    spreadsheetId,
+    range: 'Sheet1!A2',
+    valueInputOption: 'USER_ENTERED',
+    resource: {
+      values
+    }
+  }, {});
+}
+
+// 非同期関数を呼び出す
+updateSpreadsheet().catch(console.error);
+
+
 const app = express()
+
 
 // Function to get meeting information
 function getMeetingInfo(accessToken, callback) {
@@ -15,117 +56,118 @@ function getMeetingInfo(accessToken, callback) {
 
   // Set the request headers
   const headers = {
-      'Authorization': 'Bearer ' + accessToken
+    'Authorization': 'Bearer ' + accessToken
   }
 
   // Send GET request to the API endpoint
   request.get({ url: apiUrl, headers: headers }, (error, response, body) => {
-      if (error) {
-          console.log('API Response Error: ', error)
-          callback(error, null)
-      } else {
-          body = JSON.parse(body)
+    if (error) {
+      console.log('API Response Error: ', error)
+      callback(error, null)
+    } else {
+      body = JSON.parse(body)
 
-          // Create a map to hold the count of participants for each minute
-          let participationMap = new Map()
+      // Create a map to hold the count of participants for each minute
+      let participationMap = new Map()
 
-          // Iterate over the participants
-          for(let participant of body.participants) {
-              // Parse join and leave times
-              let joinTime = new Date(participant.join_time)
-              let leaveTime = new Date(participant.leave_time)
+      // Iterate over the participants
+      for (let participant of body.participants) {
+        // Parse join and leave times
+        let joinTime = new Date(participant.join_time)
+        let leaveTime = new Date(participant.leave_time)
 
-              // Round down join time to the nearest minute
-              joinTime.setSeconds(0)
-              joinTime.setMilliseconds(0)
+        // Round down join time to the nearest minute
+        joinTime.setSeconds(0)
+        joinTime.setMilliseconds(0)
 
-              // Round up leave time to the nearest minute
-              leaveTime.setSeconds(0)
-              leaveTime.setMilliseconds(0)
-              leaveTime.setMinutes(leaveTime.getMinutes() + 1)
+        // Round up leave time to the nearest minute
+        leaveTime.setSeconds(0)
+        leaveTime.setMilliseconds(0)
+        leaveTime.setMinutes(leaveTime.getMinutes() + 1)
 
-              // Calculate the number of minutes the participant was present
-              let durationMinutes = Math.round((leaveTime - joinTime) / 60000)
+        // Calculate the number of minutes the participant was present
+        let durationMinutes = Math.round((leaveTime - joinTime) / 60000)
 
-              // Increment the count for each minute the participant was present
-              for(let i = 0; i < durationMinutes; i++) {
-                  let minute = new Date(joinTime.getTime() + i*60000).toISOString()
+        // Increment the count for each minute the participant was present
+        for (let i = 0; i < durationMinutes; i++) {
+          let minute = new Date(joinTime.getTime() + i * 60000).toISOString()
 
-                  if(participationMap.has(minute)) {
-                      participationMap.set(minute, participationMap.get(minute) + 1)
-                  } else {
-                      participationMap.set(minute, 1)
-                  }
-              }
+          if (participationMap.has(minute)) {
+            participationMap.set(minute, participationMap.get(minute) + 1)
+          } else {
+            participationMap.set(minute, 1)
           }
-
-          // Convert the map to a sorted array of [minute, count] pairs
-          let participationArray = Array.from(participationMap)
-          participationArray.sort((a, b) => a[0].localeCompare(b[0]))
-
-          // Output the participant count for each minute
-          console.log('Participant count by minute:')
-          for(let [minute, count] of participationArray) {
-              console.log(minute, count)
-          }
-
-          callback(null, body)
+        }
       }
+
+      // Convert the map to a sorted array of [minute, count] pairs
+      let participationArray = Array.from(participationMap)
+      participationArray.sort((a, b) => a[0].localeCompare(b[0]))
+
+      // Output the participant count for each minute
+      console.log('Participant count by minute:')
+      let values = [];
+      for (let [minute, count] of participationArray) {
+        values.push([minute, count]);
+      }
+
+      callback(null, body)
+    }
   })
 }
 
 
 app.get('/', (req, res) => {
 
-    // Step 1:
-    // Check if the code parameter is in the URL
-    // If an authorization code is available, the user has most likely been redirected from Zoom OAuth
-    // If not, the user needs to be redirected to Zoom OAuth to authorize
+  // Step 1:
+  // Check if the code parameter is in the URL
+  // If an authorization code is available, the user has most likely been redirected from Zoom OAuth
+  // If not, the user needs to be redirected to Zoom OAuth to authorize
 
-    if (req.query.code) {
+  if (req.query.code) {
 
-        // Step 3:
-        // Request an access token using the auth code
+    // Step 3:
+    // Request an access token using the auth code
 
-        let url = 'https://zoom.us/oauth/token?grant_type=authorization_code&code=' + req.query.code + '&redirect_uri=' + process.env.redirectURL;
+    let url = 'https://zoom.us/oauth/token?grant_type=authorization_code&code=' + req.query.code + '&redirect_uri=' + process.env.redirectURL;
 
-        request.post(url, (error, response, body) => {
+    request.post(url, (error, response, body) => {
 
-            // Parse response to JSON
+      // Parse response to JSON
+      body = JSON.parse(body);
+
+      // Logs your access and refresh tokens in the browser
+      console.log(`access_token: ${body.access_token}`);
+      console.log(`refresh_token: ${body.refresh_token}`);
+      const access_token = body.access_token;
+      if (body.access_token) {
+
+        // Step 4:
+        // We can now use the access token to authenticate API calls
+
+        // Send a request to get your user information using the /me context
+        // The `/me` context restricts an API call to the user the token belongs to
+        // This helps make calls to user-specific endpoints instead of storing the userID
+
+        request.get('https://api.zoom.us/v2/users/me', (error, response, body) => {
+          if (error) {
+            console.log('API Response Error: ', error)
+          } else {
             body = JSON.parse(body);
+            // Display response in console
+            console.log('API call ', body);
 
-            // Logs your access and refresh tokens in the browser
-            console.log(`access_token: ${body.access_token}`);
-            console.log(`refresh_token: ${body.refresh_token}`);
-            const access_token = body.access_token;
-            if (body.access_token) {
+            // Get meeting information using the access token
+            getMeetingInfo(access_token, (error, meetings) => {
+              if (error) {
+                // Handle error
+              } else {
+                // Display response in console
+                console.log('Meeting Info: ', meetings);
 
-                // Step 4:
-                // We can now use the access token to authenticate API calls
-
-                // Send a request to get your user information using the /me context
-                // The `/me` context restricts an API call to the user the token belongs to
-                // This helps make calls to user-specific endpoints instead of storing the userID
-
-                request.get('https://api.zoom.us/v2/users/me', (error, response, body) => {
-                    if (error) {
-                        console.log('API Response Error: ', error)
-                    } else {
-                        body = JSON.parse(body);
-                        // Display response in console
-                        console.log('API call ', body);
-
-                        // Get meeting information using the access token
-                        getMeetingInfo(access_token, (error, meetings) => {
-                            if (error) {
-                                // Handle error
-                            } else {
-                                // Display response in console
-                                console.log('Meeting Info: ', meetings);
-
-                                // Display response in browser
-                                var JSONResponse = '<pre><code>' + JSON.stringify(meetings, null, 2) + '</code></pre>'
-                                res.send(`
+                // Display response in browser
+                var JSONResponse = '<pre><code>' + JSON.stringify(meetings, null, 2) + '</code></pre>'
+                res.send(`
                   <style>
                     @import url('https://fonts.googleapis.com/css?family=Open+Sans:400,600&display=swap');
                     @import url('https://necolas.github.io/normalize.css/8.0.1/normalize.css');
@@ -217,25 +259,25 @@ app.get('/', (req, res) => {
                     </div>
                   </div>
                 `);
-                            }
-                        });
+              }
+            });
 
-                    }
-                }).auth(null, null, true, body.access_token);
+          }
+        }).auth(null, null, true, body.access_token);
 
-            } else {
-                // Handle errors, something's gone wrong!
-            }
+      } else {
+        // Handle errors, something's gone wrong!
+      }
 
-        }).auth(process.env.clientID, process.env.clientSecret);
+    }).auth(process.env.clientID, process.env.clientSecret);
 
-        return;
+    return;
 
-    }
+  }
 
-    // Step 2:
-    // If no authorization code is available, redirect to Zoom OAuth to authorize
-    res.redirect('https://zoom.us/oauth/authorize?response_type=code&client_id=' + process.env.clientID + '&redirect_uri=' + process.env.redirectURL)
+  // Step 2:
+  // If no authorization code is available, redirect to Zoom OAuth to authorize
+  res.redirect('https://zoom.us/oauth/authorize?response_type=code&client_id=' + process.env.clientID + '&redirect_uri=' + process.env.redirectURL)
 })
 
 app.listen(33333, () => console.log("http://localhost:33333"))
