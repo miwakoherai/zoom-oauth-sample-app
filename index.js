@@ -1,17 +1,17 @@
 // Bring in environment secrets through dotenv
-import dotenv from 'dotenv';
+const dotenv = require('dotenv');
 dotenv.config();
 
 // Use the request module to make HTTP requests from Node
-import request from 'request';
+const request = require('request');
 
 // Run the express app
-import express from 'express';
-import { google } from 'googleapis';
+const express = require('express');
+const { google } = require('googleapis');
 
 
 // Google SheetsのAPIをセットアップする
-async function updateSpreadsheet(participationMap) {
+async function updateSpreadsheet(values) {
   const auth = new google.auth.GoogleAuth({
     keyFile: 'countyoutubeaudience-e290fee05aa5.json',
     scopes: ['https://www.googleapis.com/auth/spreadsheets']
@@ -21,20 +21,11 @@ async function updateSpreadsheet(participationMap) {
 
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-  let participationArray = Array.from(participationMap);
-
-
-  // スプレッドシートに記入するデータを準備する
-  let values = [];
-  for (let [minute, count] of participationArray) {
-    values.push([minute, count]);
-  }
-
   // スプレッドシートにデータを書き込む
   const write = await googleSheets.spreadsheets.values.update({
     auth,
     spreadsheetId,
-    range: 'Sheet1!A2',
+    range: 'シート1!A2',
     valueInputOption: 'USER_ENTERED',
     resource: {
       values
@@ -43,7 +34,7 @@ async function updateSpreadsheet(participationMap) {
 }
 
 // 非同期関数を呼び出す
-updateSpreadsheet().catch(console.error);
+// updateSpreadsheet().catch(console.error);
 
 
 const app = express()
@@ -110,7 +101,7 @@ function getMeetingInfo(accessToken, callback) {
       for (let [minute, count] of participationArray) {
         values.push([minute, count]);
       }
-
+      updateSpreadsheet(values)
       callback(null, body)
     }
   })
