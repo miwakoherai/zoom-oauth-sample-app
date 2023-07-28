@@ -1,110 +1,286 @@
-const dotenv = require('dotenv');
-const request = require('request');
-const express = require('express');
-const { google } = require('googleapis');
-const youtubeLiveViewerRecorder = require('./youtubeLiveViewerRecorder.js'); 
-const logger = require('./logger');
+import dotenv from "dotenv";
+import express from "express";
+import { google } from "googleapis";
+import axios from "axios";
+import fs from "fs";
+import moment from "moment-timezone";
+import schedule from "node-schedule";
+import logger from "./logger.js";
+
 dotenv.config();
 const app = express();
-const googleSheets = google.sheets({ version: 'v4' });
+const googleSheets = google.sheets({ version: "v4" });
 
 async function getGoogleAuthClient() {
   const auth = new google.auth.GoogleAuth({
-    keyFile: 'countyoutubeaudience-e290fee05aa5.json',
-    scopes: ['https://www.googleapis.com/auth/spreadsheets']
+    keyFile: "countyoutubeaudience-e290fee05aa5.json",
+    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
   });
 
   return await auth.getClient();
 }
 
-async function updateSpreadsheet(values) {
+async function getMeetingInfo(accessToken) {
+  const apiUrl =
+    "https://api.zoom.us/v2/past_meetings/83313322898/participants";
+  const headers = { Authorization: "Bearer " + accessToken };
+
+  try {
+    const { data: body } = await axios.get(apiUrl, { headers });
+    return processMeetingInfo(body);
+  } catch (error) {
+    logger.error(`An error occurred: ${error}`);
+    return null;
+  }
+}
+function processMeetingInfo(body) {
+  let participationMap = new Map();
+
+  for (let participant of body.participants) {
+    let joinTime = moment(participant.join_time);
+    let leaveTime = moment(participant.leave_time);
+
+    joinTime.seconds(0);
+    joinTime.milliseconds(0);
+
+    leaveTime.seconds(0);
+    leaveTime.milliseconds(0);
+    leaveTime.add(1, "minutes");
+
+    let durationMinutes = leaveTime.diff(joinTime, "minutes");
+
+    for (let i = 0; i < durationMinutes; i++) {
+      let minute = joinTime
+        .clone()
+        .add(i, "minutes")
+        .format("YYYY-MM-DDTHH:mm");
+
+      if (participationMap.has(minute)) {
+        participationMap.set(minute, participationMap.get(minute) + 1);
+      } else {
+        participationMap.set(minute, 1);
+      }
+    }
+  }
+
+  let participationArray = Array.from(participationMap);
+  participationArray.sort((a, b) => a[0].localeCompare(b[0]));
+
+  let values = participationArray.map(([minute, count]) => [minute, count]);
+
+  return { body, values };
+}
+
+
+const makeApiRequest = async (url) => {
+  try {
+    const { data } = await axios.get(url);
+    if (data.items && data.items.length > 0) {
+      return data.items[0];
+    }
+  } catch (error) {
+    logger.error(`An error occurred: ${error}`);
+  }
+  return null;
+};
+
+const buildUrl = (base, params) => {
+  const url = new URL(base);
+  Object.keys(params).forEach((key) =>
+    url.searchParams.append(key, params[key])
+  );
+  return url.toString();
+};
+
+const getLiveVideoId = async (channelId) => {
+  const url = buildUrl("https://www.googleapis.com/youtube/v3/search", {
+    part: "id",
+    channelId: channelId,
+    eventType: "live",
+    type: "video",
+    key: process.env.API_KEY,
+  });
+  const item = await makeApiRequest(url);
+  return item ? item.id.videoId : null;
+};
+
+const getLiveViewerCount = async (videoId) => {
+  const url = buildUrl("https://www.googleapis.com/youtube/v3/videos", {
+    part: "liveStreamingDetails",
+    id: videoId,
+    key: process.env.API_KEY,
+  });
+  const item = await makeApiRequest(url);
+  return item ? item.liveStreamingDetails.concurrentViewers : null;
+};
+
+const writeToFile = (viewerCount) => {
+  const now = moment().tz("Asia/Tokyo");
+  const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
+  const log = `${now.format("YYYY-MM-DDTHH:mm")}Z\t${viewerCount}\n`;
+  fs.appendFileSync(fileName, log);
+};
+
+const readFromFile = (fileName) => {
+  if (!fs.existsSync(fileName)) {
+    fs.writeFileSync(fileName, "");
+  }
+  const data = fs.readFileSync(fileName, "utf-8");
+  console.log(`Data read from file: ${data}`); //
+  const lines = data.split("\n");
+  const result = lines.map((line) => {
+    const [timestamp, count] = line.split("\t");
+    console.log(`Timestamp: ${timestamp}, Count: ${count}`);
+    return [timestamp, Number(count)];
+  });
+  return result;
+};
+
+const recordViewers = async () => {
+  try {
+    const videoId = await getLiveVideoId(process.env.CHANNEL_ID);
+    if (videoId) {
+      const viewerCount = await getLiveViewerCount(videoId);
+      console.log(`視聴者数: ${viewerCount}`);
+      writeToFile(viewerCount);
+    } else {
+      console.log("現在、ライブ配信が行われていません。");
+    }
+  } catch (error) {
+    logger.error(`An error occurred: ${error}`);
+  }
+};
+
+const job = async (jobEnd) => {
+  try {
+    const now = moment().tz("Asia/Tokyo");
+    const weekdayLimit = Number(process.env.WEEKDAY_LIMIT);
+
+    if (now.isoWeekday() <= weekdayLimit) {
+      const startTime = moment().hour(21).minute(0);
+      const endTime = moment().hour(22).minute(33);
+      if (now.isBetween(startTime, endTime)) {
+        await recordViewers();
+      } else if (now.isAfter(endTime)) {
+        jobEnd[0] = true;
+        console.log("recordViewers finished.");
+      }
+    }
+  } catch (error) {
+    console.error(`An error occurred: ${error}`);
+  }
+};
+
+async function updateYoutubeViewerCount(viewerCount) {
   const client = await getGoogleAuthClient();
   const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
+  // Update viewer count in columns A and B
   await googleSheets.spreadsheets.values.update({
     auth: client,
     spreadsheetId,
-    range: 'シート1!A2',
-    valueInputOption: 'USER_ENTERED',
-    resource: { values }
+    range: "シート1!A2:B",
+    valueInputOption: "USER_ENTERED",
+    resource: { values: viewerCount },
   });
 }
 
-function getMeetingInfo(accessToken) {
-  return new Promise((resolve, reject) => {
-    const apiUrl = 'https://api.zoom.us/v2/past_meetings/83313322898/participants';
-    const headers = { 'Authorization': 'Bearer ' + accessToken };
+async function updateZoomParticipantCount(participantCount) {
+  const client = await getGoogleAuthClient();
+  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
 
-    request.get({ url: apiUrl, headers }, (error, response, body) => {
-      if (error) {
-        reject(error);
-      } else {
-        body = JSON.parse(body);
-        let participationMap = new Map();
-
-        for (let participant of body.participants) {
-          let joinTime = new Date(participant.join_time);
-          let leaveTime = new Date(participant.leave_time);
-
-          joinTime.setSeconds(0);
-          joinTime.setMilliseconds(0);
-
-          leaveTime.setSeconds(0);
-          leaveTime.setMilliseconds(0);
-          leaveTime.setMinutes(leaveTime.getMinutes() + 1);
-
-          let durationMinutes = Math.round((leaveTime - joinTime) / 60000);
-
-          for (let i = 0; i < durationMinutes; i++) {
-            let minute = new Date(joinTime.getTime() + i * 60000).toISOString();
-
-            if (participationMap.has(minute)) {
-              participationMap.set(minute, participationMap.get(minute) + 1);
-            } else {
-              participationMap.set(minute, 1);
-            }
-          }
-        }
-
-        let participationArray = Array.from(participationMap);
-        participationArray.sort((a, b) => a[0].localeCompare(b[0]));
-
-        let values = participationArray.map(([minute, count]) => [minute, count]);
-        resolve({ body, values });
-      }
-    });
+  // Update participant count in columns C and D
+  await googleSheets.spreadsheets.values.update({
+    auth: client,
+    spreadsheetId,
+    range: "シート1!C2:D",
+    valueInputOption: "USER_ENTERED",
+    resource: { values: participantCount },
   });
 }
 
-app.get('/', async (req, res) => {
+const main = async () => {
+  console.log("Program started.");
+  const now = moment().tz("Asia/Tokyo");
+  const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
+  scheduleJob();
+  const viewerCount = readFromFile(fileName);
+  await updateYoutubeViewerCount(viewerCount);
+};
+
+const scheduleJob = () => {
+  const jobEnd = [false];
+  const jobSchedule = schedule.scheduleJob("*/1 * * * *", async () => {
+    await job(jobEnd);
+    if (jobEnd[0]) {
+      jobSchedule.cancel();
+      console.log("Main loop finished.");
+    }
+  });
+  console.log("Main loop started.");
+};
+
+const handleOAuthFlow = async (req, res) => {
   if (req.query.code) {
-    let url = 'https://zoom.us/oauth/token?grant_type=authorization_code&code=' + req.query.code + '&redirect_uri=' + process.env.redirectURL;
-
-    request.post(url, async (error, response, body) => {
-      body = JSON.parse(body);
-      const access_token = body.access_token;
-
-      if (access_token) {
-        request.get('https://api.zoom.us/v2/users/me', async (error, response, body) => {
-          body = JSON.parse(body);
-
-          try {
-            const { body: meetings, values } = await getMeetingInfo(access_token);
-            await updateSpreadsheet(values);
-            // Display response in browser
-            // ...
-          } catch (error) {
-            // Handle error
-          }
-        }).auth(null, null, true, access_token);
-      }
-    }).auth(process.env.clientID, process.env.clientSecret);
+    await exchangeOAuthCode(req, res);
   } else {
-    res.redirect('https://zoom.us/oauth/authorize?response_type=code&client_id=' + process.env.clientID + '&redirect_uri=' + process.env.redirectURL);
+    redirectToOAuthPage(res);
   }
-});
+};
 
+const exchangeOAuthCode = async (req, res) => {
+  const url =
+    "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
+    req.query.code +
+    "&redirect_uri=" +
+    process.env.redirectURL;
+
+  try {
+    const { data: body } = await axios.post(url, null, {
+      auth: {
+        username: process.env.clientID,
+        password: process.env.clientSecret,
+      },
+    });
+    const access_token = body.access_token;
+    if (access_token) {
+      try {
+        const { data: user } = await axios.get(
+          "https://api.zoom.us/v2/users/me",
+          {
+            headers: { Authorization: `Bearer ${access_token}` },
+          }
+        );
+
+        const { body: meetings, values } = await getMeetingInfo(access_token);
+        await updateZoomParticipantCount(values);
+
+        // Display response in browser
+        res.json(user);
+      } catch (error) {
+        // Handle error
+        logger.error(`An error occurred: ${error}`);
+        res.status(500).send("An error occurred while fetching user info.");
+      }
+    }
+  } catch (error) {
+    // Handle error
+    logger.error(`An error occurred: ${error}`);
+    res.status(500).send("An error occurred while exchanging OAuth code.");
+  }
+};
+
+const redirectToOAuthPage = (res) => {
+  const url =
+    "https://zoom.us/oauth/authorize?response_type=code&client_id=" +
+    process.env.clientID +
+    "&redirect_uri=" +
+    process.env.redirectURL;
+  res.redirect(url);
+};
+
+app.get("/", handleOAuthFlow);
 app.listen(33333, async () => {
   console.log("http://localhost:33333");
-  await youtubeLiveViewerRecorder();
+  await main();
 });

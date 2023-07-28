@@ -1,12 +1,10 @@
-const winston = require('winston');
+import { createLogger, format, transports } from "winston";
 
-const logger = winston.createLogger({
-  level: 'info',
-  format: winston.format.json(),
-  defaultMeta: { service: 'user-service' },
-  transports: [
-    new winston.transports.Console()
-  ]
+const logger = createLogger({
+  level: "info",
+  format: format.json(),
+  defaultMeta: { service: "user-service" },
+  transports: [new transports.Console()],
 });
 
-module.exports = logger;
+export default logger;
