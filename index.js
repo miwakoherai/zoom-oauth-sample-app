@@ -21,15 +21,18 @@ async function getGoogleAuthClient() {
 }
 
 async function getMeetingInfo(accessToken) {
+  const userId = process.env.USER_ID;
+  // const apiUrl = "https://api.zoom.us/v2/users/" + userId + "/meetings";
   const apiUrl =
-    "https://api.zoom.us/v2/past_meetings/83313322898/participants";
+    "https://api.zoom.us/v2/past_meetings/81550436704/participants";
   const headers = { Authorization: "Bearer " + accessToken };
 
   try {
     const { data: body } = await axios.get(apiUrl, { headers });
+    console.log(body);
     return processMeetingInfo(body);
   } catch (error) {
-    logger.error(`An error occurred: ${error}`);
+    console.log(`An error occurred: ${error}`);
     return null;
   }
 }
@@ -71,7 +74,6 @@ function processMeetingInfo(body) {
   return { body, values };
 }
 
-
 const makeApiRequest = async (url) => {
   try {
     const { data } = await axios.get(url);
@@ -79,7 +81,7 @@ const makeApiRequest = async (url) => {
       return data.items[0];
     }
   } catch (error) {
-    logger.error(`An error occurred: ${error}`);
+    console.log(`An error occurred: ${error}`);
   }
   return null;
 };
@@ -117,28 +119,35 @@ const getLiveViewerCount = async (videoId) => {
 const writeToFile = (viewerCount) => {
   const now = moment().tz("Asia/Tokyo");
   const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
-  const log = `${now.format("YYYY-MM-DDTHH:mm")}Z\t${viewerCount}\n`;
+  const log = `${now.format("YYYY-MM-DD HH:mm")} ${viewerCount}\n`;
   fs.appendFileSync(fileName, log);
 };
 
 const readFromFile = (fileName) => {
   if (!fs.existsSync(fileName)) {
     fs.writeFileSync(fileName, "");
+    console.log(".textファイル作成");
   }
   const data = fs.readFileSync(fileName, "utf-8");
-  console.log(`Data read from file: ${data}`); //
-  const lines = data.split("\n");
+  const lines = data.split("\n").filter(line => line.trim());  // 空行をフィルタリング
   const result = lines.map((line) => {
-    const [timestamp, count] = line.split("\t");
-    console.log(`Timestamp: ${timestamp}, Count: ${count}`);
-    return [timestamp, Number(count)];
-  });
+    const [date,time, countString] = line.split(" ");
+    const datetime = `${date} ${time}`;
+    const count = parseInt(countString, 10);  // countを整数に変換
+    if (isNaN(count)) {
+      console.error(`Invalid count value: ${countString}`);
+      return null;
+    }
+    return [datetime, count];
+  }).filter(item => item);  // nullをフィルタリング
+  
   return result;
 };
 
+
 const recordViewers = async () => {
   try {
-    const videoId = await getLiveVideoId(process.env.CHANNEL_ID);
+    const videoId = await getLiveVideoId(process.env.YOUTUBE_CHANNEL_ID);
     if (videoId) {
       const viewerCount = await getLiveViewerCount(videoId);
       console.log(`視聴者数: ${viewerCount}`);
@@ -147,7 +156,7 @@ const recordViewers = async () => {
       console.log("現在、ライブ配信が行われていません。");
     }
   } catch (error) {
-    logger.error(`An error occurred: ${error}`);
+    console.log(`An error occurred: ${error}`);
   }
 };
 
@@ -157,8 +166,8 @@ const job = async (jobEnd) => {
     const weekdayLimit = Number(process.env.WEEKDAY_LIMIT);
 
     if (now.isoWeekday() <= weekdayLimit) {
-      const startTime = moment().hour(21).minute(0);
-      const endTime = moment().hour(22).minute(33);
+      const startTime = moment().hour(21).minute(0); //ライブ配信開始時間設定
+      const endTime = moment().hour(22).minute(33); //ライブ配信終了時間設定
       if (now.isBetween(startTime, endTime)) {
         await recordViewers();
       } else if (now.isAfter(endTime)) {
@@ -167,7 +176,7 @@ const job = async (jobEnd) => {
       }
     }
   } catch (error) {
-    console.error(`An error occurred: ${error}`);
+    console.log(`An error occurred: ${error}`);
   }
 };
 
@@ -201,22 +210,28 @@ async function updateZoomParticipantCount(participantCount) {
 
 const main = async () => {
   console.log("Program started.");
-  const now = moment().tz("Asia/Tokyo");
-  const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
-  scheduleJob();
-  const viewerCount = readFromFile(fileName);
-  await updateYoutubeViewerCount(viewerCount);
+  await scheduleJob();
 };
 
-const scheduleJob = () => {
+const scheduleJob = async () => {
   const jobEnd = [false];
-  const jobSchedule = schedule.scheduleJob("*/1 * * * *", async () => {
+  console.log("before schedule.schedulejobs.");
+  const jobSchedule = await schedule.scheduleJob("*/1 * * * *", async () => {
+    console.log("before job.");
     await job(jobEnd);
+    console.log("after job.");
     if (jobEnd[0]) {
       jobSchedule.cancel();
       console.log("Main loop finished.");
+      const now = moment().tz("Asia/Tokyo");
+      const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
+      const viewerCount = readFromFile(fileName);
+      console.log(viewerCount);
+      await updateYoutubeViewerCount(viewerCount);
+      console.log("http://localhost:33333");
     }
   });
+  console.log("after schedule.schedulejobs.");
   console.log("Main loop started.");
 };
 
@@ -259,13 +274,15 @@ const exchangeOAuthCode = async (req, res) => {
         res.json(user);
       } catch (error) {
         // Handle error
-        logger.error(`An error occurred: ${error}`);
+        console.log(`An error occurred: ${error}`);
         res.status(500).send("An error occurred while fetching user info.");
+      } finally {
+        process.exit(0);
       }
     }
   } catch (error) {
     // Handle error
-    logger.error(`An error occurred: ${error}`);
+    console.log(`An error occurred: ${error}`);
     res.status(500).send("An error occurred while exchanging OAuth code.");
   }
 };
@@ -281,6 +298,9 @@ const redirectToOAuthPage = (res) => {
 
 app.get("/", handleOAuthFlow);
 app.listen(33333, async () => {
-  console.log("http://localhost:33333");
+  // const fileName = "2023-08-31_YouTube.txt";
+  // const viewerData = readFromFile(fileName);
+  // updateYoutubeViewerCount(viewerData);  
+
   await main();
 });
