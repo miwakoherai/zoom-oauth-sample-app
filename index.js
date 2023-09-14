@@ -131,7 +131,7 @@ const readFromFile = (fileName) => {
   const data = fs.readFileSync(fileName, "utf-8");
   const lines = data.split("\n").filter(line => line.trim());  // 空行をフィルタリング
   const result = lines.map((line) => {
-    const [date,time, countString] = line.split(" ");
+    const [date, time, countString] = line.split(" ");
     const datetime = `${date} ${time}`;
     const count = parseInt(countString, 10);  // countを整数に変換
     if (isNaN(count)) {
@@ -140,7 +140,7 @@ const readFromFile = (fileName) => {
     }
     return [datetime, count];
   }).filter(item => item);  // nullをフィルタリング
-  
+
   return result;
 };
 
@@ -214,7 +214,6 @@ const scheduleJob = async () => {
       const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
       const viewerCount = readFromFile(fileName);
       console.log(viewerCount);
-      await updateYoutubeViewerCount(viewerCount);
       console.log("http://localhost:33333");
     }
   });
@@ -224,13 +223,13 @@ const scheduleJob = async () => {
 
 const handleOAuthFlow = async (req, res) => {
   if (req.query.code) {
-    await exchangeOAuthCode(req, res);
+    await computeTotalAndViewerMax(req, res);
   } else {
     redirectToOAuthPage(res);
   }
 };
 
-const exchangeOAuthCode = async (req, res) => {
+const getZoomParticipantsCountList = async (req, res) => {
   const url =
     "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
     req.query.code +
@@ -255,10 +254,7 @@ const exchangeOAuthCode = async (req, res) => {
         );
 
         const { body: meetings, values } = await getMeetingInfo(access_token);
-        await updateZoomParticipantCount(values);
-
-        // Display response in browser
-        res.json(user);
+        return values;
       } catch (error) {
         // Handle error
         console.log(`An error occurred: ${error}`);
@@ -273,6 +269,40 @@ const exchangeOAuthCode = async (req, res) => {
     res.status(500).send("An error occurred while exchanging OAuth code.");
   }
 };
+async function computeTotalAndViewerMax(req, res) {
+  console.log("Starting to compute total and viewer max...");
+
+  const youtubeCounts = await getLiveViewerCount();
+  console.log("Fetched YouTube viewer counts:", youtubeCounts);
+
+  const zoomCounts = await getZoomParticipantsCountList(req, res);
+  console.log("Fetched Zoom participant counts:", zoomCounts);
+
+  let combinedCounts = new Map();
+  let maxCount = 0;
+
+  // YouTubeのカウントを統合
+  for (let [time, count] of youtubeCounts) {
+    combinedCounts.set(time, (combinedCounts.get(time) || 0) + count);
+  }
+  console.log("Combined counts after adding YouTube data:", Array.from(combinedCounts.entries()));
+
+  // Zoomのカウントを統合
+  for (let [time, count] of zoomCounts) {
+    combinedCounts.set(time, (combinedCounts.get(time) || 0) + count);
+    maxCount = Math.max(maxCount, combinedCounts.get(time));
+  }
+  console.log("Combined counts after adding Zoom data:", Array.from(combinedCounts.entries()));
+
+  // 結果をログに出力（または必要に応じて他の方法で保存）
+  for (let [time, totalCount] of combinedCounts) {
+    console.log(`Time: ${time}, Total Viewer Count: ${totalCount}`);
+  }
+
+  console.log(`Maximum Viewer Count: ${maxCount}`);
+
+  return maxCount;
+}
 
 const redirectToOAuthPage = (res) => {
   const url =
@@ -285,9 +315,11 @@ const redirectToOAuthPage = (res) => {
 
 app.get("/", handleOAuthFlow);
 app.listen(33333, async () => {
+  console.log("Program started.");
+  await scheduleJob();
+  
   // const fileName = "2023-08-31_YouTube.txt";
   // const viewerData = readFromFile(fileName);
   // updateYoutubeViewerCount(viewerData);  
 
-  await main();
 });
