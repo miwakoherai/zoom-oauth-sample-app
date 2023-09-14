@@ -168,50 +168,37 @@ const job = async (jobEnd) => {
     if (now.isoWeekday() <= weekdayLimit) {
       const startTime = moment().hour(21).minute(0); //ライブ配信開始時間設定
       const endTime = moment().hour(22).minute(33); //ライブ配信終了時間設定
+      const oneHourBeforeStartTime = startTime.clone().subtract(1, 'hours'); //ライブ配信開始時間の1時間前
       if (now.isBetween(startTime, endTime)) {
         await recordViewers();
-      } else if (now.isAfter(endTime)) {
+      } else if (now.isAfter(endTime)||now.isBefore(oneHourBeforeStartTime)) {
         jobEnd[0] = true;
         console.log("recordViewers finished.");
-      }
+      } 
     }
   } catch (error) {
     console.log(`An error occurred: ${error}`);
   }
 };
 
-async function updateYoutubeViewerCount(viewerCount) {
-  const client = await getGoogleAuthClient();
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
+function convertToDictionaryList(viewerCount) {
+  // 最初の行をキーとして取得
+  const keys = viewerCount[0];
 
-  // Update viewer count in columns A and B
-  await googleSheets.spreadsheets.values.update({
-    auth: client,
-    spreadsheetId,
-    range: "シート1!A2:B",
-    valueInputOption: "USER_ENTERED",
-    resource: { values: viewerCount },
-  });
+  // オブジェクトのリストを作成
+  const objectList = [];
+
+  for (let i = 1; i < viewerCount.length; i++) {
+    const obj = {};
+    for (let j = 0; j < keys.length; j++) {
+      obj[keys[j]] = viewerCount[i][j];
+    }
+    objectList.push(obj);
+  }
+
+  return objectList;
 }
 
-async function updateZoomParticipantCount(participantCount) {
-  const client = await getGoogleAuthClient();
-  const spreadsheetId = process.env.GOOGLE_SPREADSHEET_ID;
-
-  // Update participant count in columns C and D
-  await googleSheets.spreadsheets.values.update({
-    auth: client,
-    spreadsheetId,
-    range: "シート1!C2:D",
-    valueInputOption: "USER_ENTERED",
-    resource: { values: participantCount },
-  });
-}
-
-const main = async () => {
-  console.log("Program started.");
-  await scheduleJob();
-};
 
 const scheduleJob = async () => {
   const jobEnd = [false];
