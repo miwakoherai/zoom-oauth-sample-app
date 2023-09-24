@@ -29,19 +29,28 @@ async function getMeetingInfo(accessToken) {
 
   try {
     const { data: body } = await axios.get(apiUrl, { headers });
-    console.log(body);
+    console.log("meeting participants body:",JSON.stringify(body));
     return processMeetingInfo(body);
+
   } catch (error) {
     console.log(`An error occurred: ${error}`);
     return null;
   }
 }
+
 function processMeetingInfo(body) {
+  console.log("Processing meeting info:", body);
+
   let participationMap = new Map();
 
   for (let participant of body.participants) {
+    console.log("Processing participant:", participant);
+
     let joinTime = moment(participant.join_time);
     let leaveTime = moment(participant.leave_time);
+
+    console.log("Original join time:", joinTime.format("YYYY-MM-DD HH:mm"));
+    console.log("Original leave time:", leaveTime.format("YYYY-MM-DD HH:mm"));
 
     joinTime.seconds(0);
     joinTime.milliseconds(0);
@@ -50,13 +59,19 @@ function processMeetingInfo(body) {
     leaveTime.milliseconds(0);
     leaveTime.add(1, "minutes");
 
+    console.log("Adjusted join time:", joinTime.format("YYYY-MM-DD HH:mm"));
+    console.log("Adjusted leave time:", leaveTime.format("YYYY-MM-DD HH:mm"));
+
     let durationMinutes = leaveTime.diff(joinTime, "minutes");
+    console.log("Duration in minutes:", durationMinutes);
 
     for (let i = 0; i < durationMinutes; i++) {
       let minute = joinTime
         .clone()
         .add(i, "minutes")
-        .format("YYYY-MM-DDTHH:mm");
+        .format("YYYY-MM-DD HH:mm");
+
+      console.log("Processing minute:", minute);
 
       if (participationMap.has(minute)) {
         participationMap.set(minute, participationMap.get(minute) + 1);
@@ -64,15 +79,11 @@ function processMeetingInfo(body) {
         participationMap.set(minute, 1);
       }
     }
+    return participationMap;
   }
-
-  let participationArray = Array.from(participationMap);
-  participationArray.sort((a, b) => a[0].localeCompare(b[0]));
-
-  let values = participationArray.map(([minute, count]) => [minute, count]);
-
-  return { body, values };
 }
+
+
 
 const makeApiRequest = async (url) => {
   try {
@@ -166,15 +177,18 @@ const job = async (jobEnd) => {
     const weekdayLimit = Number(process.env.WEEKDAY_LIMIT);
 
     if (now.isoWeekday() <= weekdayLimit) {
-      const startTime = moment().hour(21).minute(0); //ライブ配信開始時間設定
+      const startTime = moment().hour(20).minute(50); //ライブ配信開始時間設定
       const endTime = moment().hour(22).minute(33); //ライブ配信終了時間設定
-      const oneHourBeforeStartTime = startTime.clone().subtract(1, 'hours'); //ライブ配信開始時間の1時間前
+      
       if (now.isBetween(startTime, endTime)) {
         await recordViewers();
-      } else if (now.isAfter(endTime)||now.isBefore(oneHourBeforeStartTime)) {
+      } else{
         jobEnd[0] = true;
         console.log("recordViewers finished.");
       } 
+    }else{
+      jobEnd[0] = true;
+      console.log("recordViewers finished.on weekend");
     }
   } catch (error) {
     console.log(`An error occurred: ${error}`);
@@ -210,10 +224,7 @@ const scheduleJob = async () => {
     if (jobEnd[0]) {
       jobSchedule.cancel();
       console.log("Main loop finished.");
-      const now = moment().tz("Asia/Tokyo");
-      const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
-      const viewerCount = readFromFile(fileName);
-      console.log(viewerCount);
+   
       console.log("http://localhost:33333");
     }
   });
@@ -224,6 +235,8 @@ const scheduleJob = async () => {
 const handleOAuthFlow = async (req, res) => {
   if (req.query.code) {
     await computeTotalAndViewerMax(req, res);
+    server.close();
+    process.exit();
   } else {
     redirectToOAuthPage(res);
   }
@@ -253,15 +266,13 @@ const getZoomParticipantsCountList = async (req, res) => {
           }
         );
 
-        const { body: meetings, values } = await getMeetingInfo(access_token);
-        return values;
+        return await getMeetingInfo(access_token);
+        
       } catch (error) {
         // Handle error
         console.log(`An error occurred: ${error}`);
         res.status(500).send("An error occurred while fetching user info.");
-      } finally {
-        process.exit(0);
-      }
+      } 
     }
   } catch (error) {
     // Handle error
@@ -271,12 +282,16 @@ const getZoomParticipantsCountList = async (req, res) => {
 };
 async function computeTotalAndViewerMax(req, res) {
   console.log("Starting to compute total and viewer max...");
+  const now = moment().tz("Asia/Tokyo");
+  const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
+  const youtubeCounts = readFromFile(fileName);
 
-  const youtubeCounts = await getLiveViewerCount();
-  console.log("Fetched YouTube viewer counts:", youtubeCounts);
+  console.log("Fetched YouTube viewer counts:", JSON.stringify(youtubeCounts, null, 2));
+
+  
 
   const zoomCounts = await getZoomParticipantsCountList(req, res);
-  console.log("Fetched Zoom participant counts:", zoomCounts);
+  console.log("Fetched Zoom participant counts:", JSON.stringify(zoomCounts, null, 2));
 
   let combinedCounts = new Map();
   let maxCount = 0;
@@ -290,13 +305,15 @@ async function computeTotalAndViewerMax(req, res) {
   // Zoomのカウントを統合
   for (let [time, count] of zoomCounts) {
     combinedCounts.set(time, (combinedCounts.get(time) || 0) + count);
-    maxCount = Math.max(maxCount, combinedCounts.get(time));
+    
   }
   console.log("Combined counts after adding Zoom data:", Array.from(combinedCounts.entries()));
 
   // 結果をログに出力（または必要に応じて他の方法で保存）
   for (let [time, totalCount] of combinedCounts) {
-    console.log(`Time: ${time}, Total Viewer Count: ${totalCount}`);
+    maxCount = Math.max(maxCount, combinedCounts.get(time));
+    console.log(`Time: ${time}, Total Viewer Count: ${totalCount}, maxCount: ${maxCount}` );
+    
   }
 
   console.log(`Maximum Viewer Count: ${maxCount}`);
@@ -314,7 +331,7 @@ const redirectToOAuthPage = (res) => {
 };
 
 app.get("/", handleOAuthFlow);
-app.listen(33333, async () => {
+const server = app.listen(33333, async () => {
   console.log("Program started.");
   await scheduleJob();
   
