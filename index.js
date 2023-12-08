@@ -1,11 +1,11 @@
-import dotenv from "dotenv";
-import express from "express";
-import { google } from "googleapis";
-import axios from "axios";
-import fs from "fs";
-import moment from "moment-timezone";
-import schedule from "node-schedule";
-import logger from "./logger.js";
+const dotenv = require( "dotenv");
+const express = require( "express");
+const { google } = require( "googleapis");
+const axios = require( "axios");
+const fs = require( "fs");
+const moment = require( "moment-timezone");
+const schedule = require( "node-schedule");
+const logger = require( "./logger.js");
 
 dotenv.config();
 const app = express();
@@ -155,14 +155,25 @@ const readFromFile = (fileName) => {
   return result;
 };
 
+// 最後に記録された時間を追跡する変数
+let lastRecordedTime = null;
 
 const recordViewers = async () => {
+  const currentTime = moment().tz("Asia/Tokyo").format('YYYY-MM-DD HH:mm');
+// すでに同じ時間のデータを処理していたらエラーを投げる
+  if (lastRecordedTime === currentTime) {
+    throw new Error(`同じ時間(${currentTime})のデータはすでに処理済みです。`);
+}
+
   try {
     const videoId = await getLiveVideoId(process.env.YOUTUBE_CHANNEL_ID);
     if (videoId) {
       const viewerCount = await getLiveViewerCount(videoId);
       console.log(`視聴者数: ${viewerCount}`);
       writeToFile(viewerCount);
+// 最後に記録された時間を更新する
+      lastRecordedTime = currentTime;
+
     } else {
       console.log("現在、ライブ配信が行われていません。");
     }
