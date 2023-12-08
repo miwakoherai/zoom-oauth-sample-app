@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Hello World app using an OAuth Marketplace App client ID and Secret to create an OAuth token, used to call the Zoom API.",
   "main": "index.js",
-  "type": "module",
+
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "nodemon index.js"
