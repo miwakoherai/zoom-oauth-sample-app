@@ -1,4 +1,4 @@
-import { createLogger, format, transports } from "winston";
+const { createLogger, format, transports } = require("winston");
 
 const logger = createLogger({
   level: "info",
@@ -6,5 +6,4 @@ const logger = createLogger({
   defaultMeta: { service: "user-service" },
   transports: [new transports.Console()],
 });
-
-export default logger;
+module.exports = logger;
