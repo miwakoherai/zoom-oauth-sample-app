@@ -111,7 +111,7 @@ const getLiveVideoId = async (channelId) => {
     channelId: channelId,
     eventType: "live",
     type: "video",
-    key: process.env.API_KEY,
+    key: process.env.YOUTUBE_API_KEY,
   });
   const item = await makeApiRequest(url);
   return item ? item.id.videoId : null;
@@ -121,7 +121,7 @@ const getLiveViewerCount = async (videoId) => {
   const url = buildUrl("https://www.googleapis.com/youtube/v3/videos", {
     part: "liveStreamingDetails",
     id: videoId,
-    key: process.env.API_KEY,
+    key: process.env.YOUTUBE_API_KEY,
   });
   const item = await makeApiRequest(url);
   return item ? item.liveStreamingDetails.concurrentViewers : null;
@@ -258,13 +258,13 @@ const getZoomParticipantsCountList = async (req, res) => {
     "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
     req.query.code +
     "&redirect_uri=" +
-    process.env.redirectURL;
+    process.env.CLIENTSECRET;
 
   try {
     const { data: body } = await axios.post(url, null, {
       auth: {
-        username: process.env.clientID,
-        password: process.env.clientSecret,
+        username: process.env.ZOOM_CLIENT_ID,
+        password: process.env.ZOOM_CLIENTSECRET,
       },
     });
     const access_token = body.access_token;
@@ -335,9 +335,9 @@ async function computeTotalAndViewerMax(req, res) {
 const redirectToOAuthPage = (res) => {
   const url =
     "https://zoom.us/oauth/authorize?response_type=code&client_id=" +
-    process.env.clientID +
+    process.env.ZOOM_CLIENT_ID +
     "&redirect_uri=" +
-    process.env.redirectURL;
+    process.env.CLIENTSECRET;
   res.redirect(url);
 };
 
