@@ -1,11 +1,11 @@
-const dotenv = require( "dotenv");
-const express = require( "express");
-const { google } = require( "googleapis");
-const axios = require( "axios");
-const fs = require( "fs");
-const moment = require( "moment-timezone");
-const schedule = require( "node-schedule");
-const logger = require( "./logger.js");
+const dotenv = require("dotenv");
+const express = require("express");
+const { google } = require("googleapis");
+const fs = require("fs");
+const moment = require("moment-timezone");
+const schedule = require("node-schedule");
+const logger = require("./logger.js");
+const fetch = require("node-fetch");
 
 dotenv.config();
 const app = express();
@@ -22,18 +22,18 @@ async function getGoogleAuthClient() {
 
 async function getMeetingInfo(accessToken) {
   const userId = process.env.USER_ID;
-  // const apiUrl = "https://api.zoom.us/v2/users/" + userId + "/meetings";
-  const apiUrl =
-    "https://api.zoom.us/v2/past_meetings/81550436704/participants";
+  const apiUrl = "https://api.zoom.us/v2/past_meetings/81550436704/participants";
   const headers = { Authorization: "Bearer " + accessToken };
 
   try {
-    const { data: body } = await axios.get(apiUrl, { headers });
-    console.log("meeting participants body:",JSON.stringify(body));
+    const response = await fetch(apiUrl, { headers });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const body = await response.json();
+    console.log("meeting participants body:", JSON.stringify(body));
     return processMeetingInfo(body);
 
   } catch (error) {
-    console.log(`An error occurred: ${error}`);
+    console.error(`An error occurred: ${error}`);
     return null;
   }
 }
@@ -87,12 +87,14 @@ function processMeetingInfo(body) {
 
 const makeApiRequest = async (url) => {
   try {
-    const { data } = await axios.get(url);
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
     if (data.items && data.items.length > 0) {
       return data.items[0];
     }
   } catch (error) {
-    console.log(`An error occurred: ${error}`);
+    console.error(`An error occurred: ${error}`);
   }
   return null;
 };
@@ -178,7 +180,7 @@ const recordViewers = async () => {
       console.log("現在、ライブ配信が行われていません。");
     }
   } catch (error) {
-    console.log(`An error occurred: ${error}`);
+    console.error(`An error occurred: ${error}`);
   }
 };
 
@@ -202,7 +204,7 @@ const job = async (jobEnd) => {
       console.log("recordViewers finished.on weekend");
     }
   } catch (error) {
-    console.log(`An error occurred: ${error}`);
+    console.error(`An error occurred: ${error}`);
   }
 };
 
@@ -255,42 +257,44 @@ const handleOAuthFlow = async (req, res) => {
 
 const getZoomParticipantsCountList = async (req, res) => {
   const url =
-    "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
+   "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
     req.query.code +
     "&redirect_uri=" +
     process.env.CLIENTSECRET;
 
   try {
-    const { data: body } = await axios.post(url, null, {
-      auth: {
-        username: process.env.ZOOM_CLIENT_ID,
-        password: process.env.ZOOM_CLIENTSECRET,
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': 'Basic ' + Buffer.from(process.env.ZOOM_CLIENT_ID + ':' + process.env.ZOOM_CLIENTSECRET).toString('base64'),
+        'Content-Type': 'application/x-www-form-urlencoded'
       },
     });
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const body = await response.json();
     const access_token = body.access_token;
     if (access_token) {
       try {
-        const { data: user } = await axios.get(
-          "https://api.zoom.us/v2/users/me",
-          {
-            headers: { Authorization: `Bearer ${access_token}` },
-          }
-        );
+        const userResponse = await fetch("https://api.zoom.us/v2/users/me", {
+          headers: { Authorization: `Bearer ${access_token}` },
+        });
+        if (!userResponse.ok) throw new Error(`HTTP error! status: ${userResponse.status}`);
+        const user = await userResponse.json();
 
         return await getMeetingInfo(access_token);
-        
       } catch (error) {
-        // Handle error
-        console.log(`An error occurred: ${error}`);
+        console.error(`An error occurred: ${error}`);
         res.status(500).send("An error occurred while fetching user info.");
-      } 
+      }
+    } else{
+      console.error('access_token is nothing')
     }
   } catch (error) {
-    // Handle error
-    console.log(`An error occurred: ${error}`);
+    console.error(`An error occurred: ${error}`);
     res.status(500).send("An error occurred while exchanging OAuth code.");
   }
 };
+
 async function computeTotalAndViewerMax(req, res) {
   console.log("Starting to compute total and viewer max...");
   const now = moment().tz("Asia/Tokyo");

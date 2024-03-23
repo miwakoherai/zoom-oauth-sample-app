@@ -1,5 +1,13 @@
 # Zoom OAuth Hello World
 
+PKG 化コマンド
+pkg -t node18-win-x64 -d index.js > debug_output.txt
+
+このコマンドは、command の標準出力と標準エラーの両方を output.txt にリダイレクトします。
+
+chatGPT 検索結果
+https://chat.openai.com/c/b162f0ef-b04f-4e87-8163-7d74adb2f064
+
 Use of this sample app is subject to our [Terms of Use](https://zoom.us/docs/en-us/zoom_api_license_and_tou.html)
 
 This is a Hello World app using an OAuth Marketplace App client ID and Secret to create an OAuth token, used to call the Zoom API.
