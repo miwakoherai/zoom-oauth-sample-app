@@ -1,11 +1,11 @@
-const dotenv = require( "dotenv");
-const express = require( "express");
-const { google } = require( "googleapis");
-const axios = require( "axios");
-const fs = require( "fs");
-const moment = require( "moment-timezone");
-const schedule = require( "node-schedule");
-const logger = require( "./logger.js");
+const dotenv = require("dotenv");
+const express = require("express");
+const { google } = require("googleapis");
+const axios = require("axios");
+const fs = require("fs");
+const moment = require("moment-timezone");
+const schedule = require("node-schedule");
+const logger = require("./logger.js");
 
 dotenv.config();
 const app = express();
@@ -21,19 +21,22 @@ async function getGoogleAuthClient() {
 }
 
 async function getMeetingInfo(accessToken) {
-  const userId = process.env.USER_ID;
-  // const apiUrl = "https://api.zoom.us/v2/users/" + userId + "/meetings";
-  const apiUrl =
-    "https://api.zoom.us/v2/past_meetings/81550436704/participants";
-  const headers = { Authorization: "Bearer " + accessToken };
-
+  console.log("accessToken:", accessToken);
+  const pastMeetingsUrl =
+    "https://api.zoom.us/v2/past_meetings/87669043537/participants";
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+  };
   try {
-    const { data: body } = await axios.get(apiUrl, { headers });
-    console.log("meeting participants body:",JSON.stringify(body));
-    return processMeetingInfo(body);
-
+    const response = await axios.get(pastMeetingsUrl, { headers });
+    console.log("response:", response.data.participants);
+    if (!response.status === 200) {
+      throw new Error(`Error: ${response.status}`);
+    }
+    return processMeetingInfo(response.data);
   } catch (error) {
-    console.log(`An error occurred: ${error}`);
+    console.error(`Failed to fetch past meeting participants: ${error}`);
     return null;
   }
 }
@@ -79,11 +82,9 @@ function processMeetingInfo(body) {
         participationMap.set(minute, 1);
       }
     }
-    return participationMap;
   }
+  return participationMap;
 }
-
-
 
 const makeApiRequest = async (url) => {
   try {
@@ -140,17 +141,19 @@ const readFromFile = (fileName) => {
     console.log(".textファイル作成");
   }
   const data = fs.readFileSync(fileName, "utf-8");
-  const lines = data.split("\n").filter(line => line.trim());  // 空行をフィルタリング
-  const result = lines.map((line) => {
-    const [date, time, countString] = line.split(" ");
-    const datetime = `${date} ${time}`;
-    const count = parseInt(countString, 10);  // countを整数に変換
-    if (isNaN(count)) {
-      console.error(`Invalid count value: ${countString}`);
-      return null;
-    }
-    return [datetime, count];
-  }).filter(item => item);  // nullをフィルタリング
+  const lines = data.split("\n").filter((line) => line.trim()); // 空行をフィルタリング
+  const result = lines
+    .map((line) => {
+      const [date, time, countString] = line.split(" ");
+      const datetime = `${date} ${time}`;
+      const count = parseInt(countString, 10); // countを整数に変換
+      if (isNaN(count)) {
+        console.error(`Invalid count value: ${countString}`);
+        return null;
+      }
+      return [datetime, count];
+    })
+    .filter((item) => item); // nullをフィルタリング
 
   return result;
 };
@@ -159,11 +162,11 @@ const readFromFile = (fileName) => {
 let lastRecordedTime = null;
 
 const recordViewers = async () => {
-  const currentTime = moment().tz("Asia/Tokyo").format('YYYY-MM-DD HH:mm');
-// すでに同じ時間のデータを処理していたらエラーを投げる
+  const currentTime = moment().tz("Asia/Tokyo").format("YYYY-MM-DD HH:mm");
+  // すでに同じ時間のデータを処理していたらエラーを投げる
   if (lastRecordedTime === currentTime) {
     throw new Error(`同じ時間(${currentTime})のデータはすでに処理済みです。`);
-}
+  }
 
   try {
     const videoId = await getLiveVideoId(process.env.YOUTUBE_CHANNEL_ID);
@@ -171,9 +174,8 @@ const recordViewers = async () => {
       const viewerCount = await getLiveViewerCount(videoId);
       console.log(`視聴者数: ${viewerCount}`);
       writeToFile(viewerCount);
-// 最後に記録された時間を更新する
+      // 最後に記録された時間を更新する
       lastRecordedTime = currentTime;
-
     } else {
       console.log("現在、ライブ配信が行われていません。");
     }
@@ -190,14 +192,14 @@ const job = async (jobEnd) => {
     if (now.isoWeekday() <= weekdayLimit) {
       const startTime = moment().hour(20).minute(50); //ライブ配信開始時間設定
       const endTime = moment().hour(22).minute(33); //ライブ配信終了時間設定
-      
+
       if (now.isBetween(startTime, endTime)) {
         await recordViewers();
-      } else{
+      } else {
         jobEnd[0] = true;
         console.log("recordViewers finished.");
-      } 
-    }else{
+      }
+    } else {
       jobEnd[0] = true;
       console.log("recordViewers finished.on weekend");
     }
@@ -224,10 +226,10 @@ function convertToDictionaryList(viewerCount) {
   return objectList;
 }
 
-
 const scheduleJob = async () => {
   const jobEnd = [false];
   console.log("before schedule.schedulejobs.");
+  console.log("http://localhost:33333");
   const jobSchedule = await schedule.scheduleJob("*/1 * * * *", async () => {
     console.log("before job.");
     await job(jobEnd);
@@ -235,7 +237,7 @@ const scheduleJob = async () => {
     if (jobEnd[0]) {
       jobSchedule.cancel();
       console.log("Main loop finished.");
-   
+
       console.log("http://localhost:33333");
     }
   });
@@ -258,8 +260,8 @@ const getZoomParticipantsCountList = async (req, res) => {
     "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
     req.query.code +
     "&redirect_uri=" +
-    process.env.CLIENTSECRET;
-
+    process.env.OAUTH_REDIRECT_URL;
+  console.log("url:", url);
   try {
     const { data: body } = await axios.post(url, null, {
       auth: {
@@ -268,22 +270,24 @@ const getZoomParticipantsCountList = async (req, res) => {
       },
     });
     const access_token = body.access_token;
+    console.log("access_token:", access_token);
     if (access_token) {
       try {
-        const { data: user } = await axios.get(
-          "https://api.zoom.us/v2/users/me",
-          {
-            headers: { Authorization: `Bearer ${access_token}` },
-          }
-        );
-
+        // const { data: user } = await axios.get(
+        //   "https://api.zoom.us/v2/users/me",
+        //   {
+        //     headers: { Authorization: `Bearer ${access_token}` },
+        //   }
+        // );
+        // console.log("user:", user);
         return await getMeetingInfo(access_token);
-        
       } catch (error) {
         // Handle error
-        console.log(`An error occurred: ${error}`);
+        console.log(`An error occurred : ${error}`);
         res.status(500).send("An error occurred while fetching user info.");
-      } 
+      }
+    } else {
+      res.status(500).send("An error occurred while fetching access token.");
     }
   } catch (error) {
     // Handle error
@@ -297,12 +301,16 @@ async function computeTotalAndViewerMax(req, res) {
   const fileName = `${now.format("YYYY-MM-DD")}_YouTube.txt`;
   const youtubeCounts = readFromFile(fileName);
 
-  console.log("Fetched YouTube viewer counts:", JSON.stringify(youtubeCounts, null, 2));
-
-  
+  console.log(
+    "Fetched YouTube viewer counts:",
+    JSON.stringify(youtubeCounts, null, 2)
+  );
 
   const zoomCounts = await getZoomParticipantsCountList(req, res);
-  console.log("Fetched Zoom participant counts:", JSON.stringify(zoomCounts, null, 2));
+  console.log(
+    "Fetched Zoom participant counts:",
+    JSON.stringify(zoomCounts, null, 2)
+  );
 
   let combinedCounts = new Map();
   let maxCount = 0;
@@ -311,20 +319,26 @@ async function computeTotalAndViewerMax(req, res) {
   for (let [time, count] of youtubeCounts) {
     combinedCounts.set(time, (combinedCounts.get(time) || 0) + count);
   }
-  console.log("Combined counts after adding YouTube data:", Array.from(combinedCounts.entries()));
+  console.log(
+    "Combined counts after adding YouTube data:",
+    Array.from(combinedCounts.entries())
+  );
 
   // Zoomのカウントを統合
   for (let [time, count] of zoomCounts) {
     combinedCounts.set(time, (combinedCounts.get(time) || 0) + count);
-    
   }
-  console.log("Combined counts after adding Zoom data:", Array.from(combinedCounts.entries()));
+  console.log(
+    "Combined counts after adding Zoom data:",
+    Array.from(combinedCounts.entries())
+  );
 
   // 結果をログに出力（または必要に応じて他の方法で保存）
   for (let [time, totalCount] of combinedCounts) {
     maxCount = Math.max(maxCount, combinedCounts.get(time));
-    console.log(`Time: ${time}, Total Viewer Count: ${totalCount}, maxCount: ${maxCount}` );
-    
+    console.log(
+      `Time: ${time}, Total Viewer Count: ${totalCount}, maxCount: ${maxCount}`
+    );
   }
 
   console.log(`Maximum Viewer Count: ${maxCount}`);
@@ -337,7 +351,7 @@ const redirectToOAuthPage = (res) => {
     "https://zoom.us/oauth/authorize?response_type=code&client_id=" +
     process.env.ZOOM_CLIENT_ID +
     "&redirect_uri=" +
-    process.env.CLIENTSECRET;
+    process.env.OAUTH_REDIRECT_URL;
   res.redirect(url);
 };
 
@@ -345,9 +359,8 @@ app.get("/", handleOAuthFlow);
 const server = app.listen(33333, async () => {
   console.log("Program started.");
   await scheduleJob();
-  
+
   // const fileName = "2023-08-31_YouTube.txt";
   // const viewerData = readFromFile(fileName);
-  // updateYoutubeViewerCount(viewerData);  
-
+  // updateYoutubeViewerCount(viewerData);
 });
