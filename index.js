@@ -359,8 +359,4 @@ app.get("/", handleOAuthFlow);
 const server = app.listen(33333, async () => {
   console.log("Program started.");
   await scheduleJob();
-
-  // const fileName = "2023-08-31_YouTube.txt";
-  // const viewerData = readFromFile(fileName);
-  // updateYoutubeViewerCount(viewerData);
 });
