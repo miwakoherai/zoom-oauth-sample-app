@@ -237,8 +237,6 @@ const scheduleJob = async () => {
     if (jobEnd[0]) {
       jobSchedule.cancel();
       console.log("Main loop finished.");
-
-      console.log("http://localhost:33333");
     }
   });
   console.log("after schedule.schedulejobs.");
@@ -273,13 +271,6 @@ const getZoomParticipantsCountList = async (req, res) => {
     console.log("access_token:", access_token);
     if (access_token) {
       try {
-        // const { data: user } = await axios.get(
-        //   "https://api.zoom.us/v2/users/me",
-        //   {
-        //     headers: { Authorization: `Bearer ${access_token}` },
-        //   }
-        // );
-        // console.log("user:", user);
         return await getMeetingInfo(access_token);
       } catch (error) {
         // Handle error
