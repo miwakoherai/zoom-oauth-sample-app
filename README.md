@@ -1,3 +1,9 @@
+mac で pkg 化するコマンド（M2 不問）
+
+```
+% pkg -t node18-macos-x64 -o index index.js | tee debug_output.txt
+```
+
 # Zoom OAuth Hello World
 
 Use of this sample app is subject to our [Terms of Use](https://zoom.us/docs/en-us/zoom_api_license_and_tou.html)
