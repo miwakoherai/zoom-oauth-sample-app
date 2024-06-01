@@ -1,7 +1,7 @@
 mac で pkg 化するコマンド（M2 不問）
 
-```
-% pkg -t node18-macos-x64 -o index index.js | tee debug_output.txt
+```bash
+pkg -t node18-macos-x64 -o index index.js -x axios
 ```
 
 # Zoom OAuth Hello World

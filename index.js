@@ -1,7 +1,7 @@
 const dotenv = require("dotenv");
 const express = require("express");
 const { google } = require("googleapis");
-const axios = require("axios");
+const axios = require("./node_modules/axios/dist/node/axios.cjs");
 const fs = require("fs");
 const moment = require("moment-timezone");
 const schedule = require("node-schedule");
@@ -9,7 +9,17 @@ const logger = require("./logger.js");
 
 dotenv.config();
 const app = express();
-const googleSheets = google.sheets({ version: "v4" });
+const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID || "O_SwilvcRzaMG6eB0MLVLw";
+const OAUTH_REDIRECT_URL =
+  process.env.OAUTH_REDIRECT_URL || "http://localhost:33333";
+const ZOOM_CLIENTSECRET =
+  process.env.ZOOM_CLIENTSECRET || "aW35YKn7ueUNxXZNE3OwWlhbSrdepopk";
+const YOUTUBE_API_KEY =
+  process.env.YOUTUBE_API_KEY || "AIzaSyDWLWRAUKvgzfGw-Vu4Poj2b5pBsZdGdiA";
+const MEETING_ID = process.env.MEETING_ID || 87669043537;
+const YOUTUBE_CHANNEL_ID =
+  process.env.YOUTUBE_CHANNEL_ID || "UCrXLVxQvdk7vCY2G7ino5vg";
+const WEEKDAY_LIMIT = process.env.WEEKDAY_LIMIT || 5;
 
 async function getGoogleAuthClient() {
   const auth = new google.auth.GoogleAuth({
@@ -20,17 +30,18 @@ async function getGoogleAuthClient() {
   return await auth.getClient();
 }
 
-async function getMeetingInfo(accessToken) {
-  console.log("accessToken:", accessToken);
+async function getMeetingInfo(accessToken, clientId) {
+  console.log("Client ID:", clientId);
+  console.log("Access Token:", accessToken);
   const pastMeetingsUrl =
-    "https://api.zoom.us/v2/past_meetings/87669043537/participants";
+    "https://api.zoom.us/v2/past_meetings/" + MEETING_ID + "/participants";
   const headers = {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
   };
   try {
     const response = await axios.get(pastMeetingsUrl, { headers });
-    console.log("response:", response.data.participants);
+    console.log("Response:", response.data.participants);
     if (!response.status === 200) {
       throw new Error(`Error: ${response.status}`);
     }
@@ -112,7 +123,7 @@ const getLiveVideoId = async (channelId) => {
     channelId: channelId,
     eventType: "live",
     type: "video",
-    key: process.env.YOUTUBE_API_KEY,
+    key: YOUTUBE_API_KEY,
   });
   const item = await makeApiRequest(url);
   return item ? item.id.videoId : null;
@@ -122,7 +133,7 @@ const getLiveViewerCount = async (videoId) => {
   const url = buildUrl("https://www.googleapis.com/youtube/v3/videos", {
     part: "liveStreamingDetails",
     id: videoId,
-    key: process.env.YOUTUBE_API_KEY,
+    key: YOUTUBE_API_KEY,
   });
   const item = await makeApiRequest(url);
   return item ? item.liveStreamingDetails.concurrentViewers : null;
@@ -169,7 +180,7 @@ const recordViewers = async () => {
   }
 
   try {
-    const videoId = await getLiveVideoId(process.env.YOUTUBE_CHANNEL_ID);
+    const videoId = await getLiveVideoId(YOUTUBE_CHANNEL_ID);
     if (videoId) {
       const viewerCount = await getLiveViewerCount(videoId);
       console.log(`視聴者数: ${viewerCount}`);
@@ -187,7 +198,7 @@ const recordViewers = async () => {
 const job = async (jobEnd) => {
   try {
     const now = moment().tz("Asia/Tokyo");
-    const weekdayLimit = Number(process.env.WEEKDAY_LIMIT);
+    const weekdayLimit = Number(WEEKDAY_LIMIT);
 
     if (now.isoWeekday() <= weekdayLimit) {
       const startTime = moment().hour(20).minute(50); //ライブ配信開始時間設定
@@ -258,13 +269,13 @@ const getZoomParticipantsCountList = async (req, res) => {
     "https://zoom.us/oauth/token?grant_type=authorization_code&code=" +
     req.query.code +
     "&redirect_uri=" +
-    process.env.OAUTH_REDIRECT_URL;
+    OAUTH_REDIRECT_URL;
   console.log("url:", url);
   try {
     const { data: body } = await axios.post(url, null, {
       auth: {
-        username: process.env.ZOOM_CLIENT_ID,
-        password: process.env.ZOOM_CLIENTSECRET,
+        username: ZOOM_CLIENT_ID,
+        password: ZOOM_CLIENTSECRET,
       },
     });
     const access_token = body.access_token;
@@ -340,9 +351,9 @@ async function computeTotalAndViewerMax(req, res) {
 const redirectToOAuthPage = (res) => {
   const url =
     "https://zoom.us/oauth/authorize?response_type=code&client_id=" +
-    process.env.ZOOM_CLIENT_ID +
+    ZOOM_CLIENT_ID +
     "&redirect_uri=" +
-    process.env.OAUTH_REDIRECT_URL;
+    OAUTH_REDIRECT_URL;
   res.redirect(url);
 };
 
